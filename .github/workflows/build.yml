@@ -128,6 +128,129 @@ jobs:
           </manifest>
           EOF
 
+          # ===== الطبقة 1: البيانات (WorldObject / WorldState) =====
+          cat > app/src/main/java/com/example/world3d/WorldData.kt << 'EOF'
+          package com.example.world3d
+
+          import androidx.compose.runtime.mutableStateListOf
+
+          // نوع العنصر بالعالم - نضيف أنواع جديدة هنا مستقبلاً (بيت، صخرة، ماء...)
+          enum class ObjectType {
+              TREE
+          }
+
+          // عنصر واحد بالعالم = بيانات فقط، مو شكل مرسوم مباشرة.
+          // هذا يسمح لاحقًا بحفظ العالم كملف، أو تلقي قائمة من ذكاء صناعي (Gemini) وإضافتها هنا مباشرة.
+          data class WorldObject(
+              val type: ObjectType,
+              val x: Float,
+              val z: Float,
+              val scale: Float = 1f,
+              val rotationY: Float = 0f
+          )
+
+          // حالة العالم الكاملة - قائمة كل العناصر الموجودة حاليًا
+          class WorldState {
+              val objects = mutableStateListOf<WorldObject>()
+
+              fun add(obj: WorldObject) {
+                  objects.add(obj)
+              }
+
+              // نقطة توسعة مستقبلية: تحميل قائمة عناصر دفعة وحدة
+              // (مثلاً من ملف محفوظ، أو من رد الذكاء الصناعي بصيغة JSON)
+              fun addAll(newObjects: List<WorldObject>) {
+                  objects.addAll(newObjects)
+              }
+          }
+          EOF
+
+          # ===== الطبقة 2: مصنع النماذج (يحول بيانات العنصر لشكل ثلاثي أبعاد) =====
+          cat > app/src/main/java/com/example/world3d/ModelFactory.kt << 'EOF'
+          package com.example.world3d
+
+          import android.graphics.Color as AndroidColor
+          import com.google.android.filament.Engine
+          import io.github.sceneview.loaders.MaterialLoader
+          import io.github.sceneview.math.Position
+          import io.github.sceneview.node.CylinderNode
+          import io.github.sceneview.node.Node
+          import io.github.sceneview.node.SphereNode
+
+          // "مصنع" يبني الشكل ثلاثي الأبعاد المناسب لكل نوع عنصر.
+          // الحين يبني أشكال بسيطة بالكود (إجرائي).
+          // لاحقًا، نستبدل محتوى كل دالة بتحميل نموذج glTF حقيقي عبر modelLoader
+          // بدون ما نغيّر أي كود ثاني بالمشروع - هذا كل هدف وجود هذه الطبقة لحالها.
+          object ModelFactory {
+
+              fun buildNodes(
+                  worldObject: WorldObject,
+                  engine: Engine,
+                  materialLoader: MaterialLoader
+              ): List<Node> {
+                  return when (worldObject.type) {
+                      ObjectType.TREE -> buildTree(worldObject, engine, materialLoader)
+                  }
+              }
+
+              private fun buildTree(
+                  obj: WorldObject,
+                  engine: Engine,
+                  materialLoader: MaterialLoader
+              ): List<Node> {
+                  val trunkMaterial = materialLoader.createColorInstance(AndroidColor.rgb(90, 60, 30))
+                  val canopyMaterialDark = materialLoader.createColorInstance(AndroidColor.rgb(30, 110, 40))
+                  val canopyMaterialLight = materialLoader.createColorInstance(AndroidColor.rgb(60, 150, 70))
+
+                  val s = obj.scale
+
+                  // جذع متدرج السُمك: قطعتين، أعرض من تحت
+                  val trunkLower = CylinderNode(
+                      engine = engine,
+                      radius = 0.22f * s,
+                      height = 0.9f * s,
+                      materialInstance = trunkMaterial
+                  ).apply {
+                      position = Position(x = obj.x, y = 0.45f * s, z = obj.z)
+                  }
+                  val trunkUpper = CylinderNode(
+                      engine = engine,
+                      radius = 0.14f * s,
+                      height = 0.7f * s,
+                      materialInstance = trunkMaterial
+                  ).apply {
+                      position = Position(x = obj.x, y = 1.2f * s, z = obj.z)
+                  }
+
+                  // قمة متعددة الطبقات (3 كرات بأحجام وارتفاعات مختلفة) بدل كرة وحدة بسيطة
+                  val canopyBottom = SphereNode(
+                      engine = engine,
+                      radius = 0.75f * s,
+                      materialInstance = canopyMaterialDark
+                  ).apply {
+                      position = Position(x = obj.x, y = 1.7f * s, z = obj.z)
+                  }
+                  val canopyMid = SphereNode(
+                      engine = engine,
+                      radius = 0.6f * s,
+                      materialInstance = canopyMaterialLight
+                  ).apply {
+                      position = Position(x = obj.x + 0.1f * s, y = 2.15f * s, z = obj.z)
+                  }
+                  val canopyTop = SphereNode(
+                      engine = engine,
+                      radius = 0.4f * s,
+                      materialInstance = canopyMaterialDark
+                  ).apply {
+                      position = Position(x = obj.x - 0.05f * s, y = 2.55f * s, z = obj.z)
+                  }
+
+                  return listOf(trunkLower, trunkUpper, canopyBottom, canopyMid, canopyTop)
+              }
+          }
+          EOF
+
+          # ===== الطبقة 3 و4: العرض + التفاعل (الشاشة الرئيسية) =====
           cat > app/src/main/java/com/example/world3d/MainActivity.kt << 'EOF'
           package com.example.world3d
 
@@ -158,8 +281,7 @@ jobs:
           import io.github.sceneview.math.Rotation
           import io.github.sceneview.math.Size
           import io.github.sceneview.node.CubeNode
-          import io.github.sceneview.node.CylinderNode
-          import io.github.sceneview.node.SphereNode
+          import io.github.sceneview.node.Node
           import io.github.sceneview.rememberCameraManipulator
           import io.github.sceneview.rememberCameraNode
           import io.github.sceneview.rememberCollisionSystem
@@ -181,7 +303,7 @@ jobs:
               }
           }
 
-          private const val GROUND_HALF_SIZE = 6f
+          private const val GROUND_HALF_SIZE = 8f
           private const val MOVE_STEP = 0.7f
 
           @androidx.compose.runtime.Composable
@@ -193,21 +315,19 @@ jobs:
               val collisionSystem = rememberCollisionSystem(view)
               val materialLoader = rememberMaterialLoader(engine)
 
-              // ألوان المواد
-              val groundMaterial = remember { materialLoader.createColorInstance(AndroidColor.rgb(76, 175, 80)) }
-              val trunkMaterial = remember { materialLoader.createColorInstance(AndroidColor.rgb(101, 67, 33)) }
-              val canopyMaterial = remember { materialLoader.createColorInstance(AndroidColor.rgb(34, 139, 34)) }
+              val groundMaterial = remember { materialLoader.createColorInstance(AndroidColor.rgb(90, 140, 70)) }
 
-              // موقع الكاميرا القابل للتحريك بالأسهم (محاكاة مشي/طيران)
+              // حالة العالم - طبقة البيانات (من WorldData.kt)
+              val worldState = remember { WorldState() }
+
               var camX by remember { mutableStateOf(0f) }
-              var camY by remember { mutableStateOf(6f) }
-              var camZ by remember { mutableStateOf(9f) }
+              var camY by remember { mutableStateOf(7f) }
+              var camZ by remember { mutableStateOf(11f) }
 
               val cameraNode = rememberCameraNode(engine) {
                   position = Position(x = camX, y = camY, z = camZ)
                   rotation = Rotation(x = -35f, y = 0f, z = 0f)
               }
-              // تحديث موقع الكاميرا كل ما تتغير القيم بالأسهم
               cameraNode.position = Position(x = camX, y = camY, z = camZ)
 
               val mainLightNode = rememberMainLightNode(engine) {
@@ -215,15 +335,15 @@ jobs:
               }
 
               var viewSize by remember { mutableStateOf(IntSize.Zero) }
-              val treeNodes = rememberNodes()
+
+              // طبقة العرض تبني نفسها تلقائيًا من طبقة البيانات عبر مصنع النماذج
+              val worldNodes = rememberNodes()
 
               Box(modifier = Modifier.fillMaxSize()) {
                   Box(
                       modifier = Modifier
                           .fillMaxSize()
-                          .onGloballyPositioned { coordinates ->
-                              viewSize = coordinates.size
-                          }
+                          .onGloballyPositioned { coordinates -> viewSize = coordinates.size }
                   ) {
                       Scene(
                           modifier = Modifier.fillMaxSize(),
@@ -237,7 +357,6 @@ jobs:
                           cameraManipulator = rememberCameraManipulator(),
                           mainLightNode = mainLightNode,
                           childNodes = rememberNodes {
-                              // الأرضية الخضراء
                               add(
                                   CubeNode(
                                       engine = engine,
@@ -247,7 +366,7 @@ jobs:
                                       position = Position(x = 0f, y = -0.05f, z = 0f)
                                   }
                               )
-                          } + treeNodes,
+                          } + worldNodes,
                           onGestureListener = rememberOnGestureListener(
                               onSingleTapConfirmed = { motionEvent, _ ->
                                   if (viewSize.width > 0 && viewSize.height > 0) {
@@ -256,34 +375,26 @@ jobs:
                                       val worldX = normX * GROUND_HALF_SIZE
                                       val worldZ = normZ * GROUND_HALF_SIZE
 
-                                      val trunk = CylinderNode(
-                                          engine = engine,
-                                          radius = 0.15f,
-                                          height = 1.2f,
-                                          materialInstance = trunkMaterial
-                                      ).apply {
-                                          position = Position(x = worldX, y = 0.6f, z = worldZ)
-                                      }
-                                      val canopy = SphereNode(
-                                          engine = engine,
-                                          radius = 0.6f,
-                                          materialInstance = canopyMaterial
-                                      ).apply {
-                                          position = Position(x = worldX, y = 1.5f, z = worldZ)
-                                      }
-                                      treeNodes.add(trunk)
-                                      treeNodes.add(canopy)
+                                      // التفاعل يضيف "بيانات" فقط
+                                      val newObject = WorldObject(
+                                          type = ObjectType.TREE,
+                                          x = worldX,
+                                          z = worldZ,
+                                          scale = 0.8f + (0..40).random() / 100f
+                                      )
+                                      worldState.add(newObject)
+
+                                      // مصنع النماذج يحول البيانات لأشكال ويضيفها للعرض
+                                      val nodes: List<Node> = ModelFactory.buildNodes(newObject, engine, materialLoader)
+                                      worldNodes.addAll(nodes)
                                   }
                               }
                           )
                       )
                   }
 
-                  // أسهم التحكم بالكاميرا (تمشي/تطير فوق الأرض)
                   Column(
-                      modifier = Modifier
-                          .align(Alignment.BottomStart)
-                          .padding(16.dp)
+                      modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)
                   ) {
                       Row {
                           Spacer(modifier = Modifier.size(56.dp))
