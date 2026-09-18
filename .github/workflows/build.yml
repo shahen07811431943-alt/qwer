@@ -36,7 +36,7 @@ jobs:
                   mavenCentral()
               }
               dependencies {
-                  classpath 'com.android.tools.build:gradle:8.5.2'
+                  classpath 'com.android.tools.build:gradle:8.7.2'
                   classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24'
               }
           }
@@ -61,12 +61,12 @@ jobs:
 
           android {
               namespace 'com.example.world3d'
-              compileSdk 34
+              compileSdk 35
 
               defaultConfig {
                   applicationId "com.example.world3d"
                   minSdk 26
-                  targetSdk 34
+                  targetSdk 35
                   versionCode 1
                   versionName "1.0"
               }
@@ -110,13 +110,16 @@ jobs:
 
           dependencies {
               implementation 'androidx.core:core-ktx:1.13.1'
-              implementation 'androidx.activity:activity-compose:1.9.0'
-              implementation 'androidx.compose.ui:ui:1.6.8'
-              implementation 'androidx.compose.foundation:foundation:1.6.8'
-              implementation 'androidx.compose.material3:material3:1.2.1'
-              implementation 'androidx.compose.material:material-icons-extended:1.6.8'
+              implementation 'androidx.activity:activity-compose:1.9.3'
 
-              // SceneView 4.x - يدعم GLB + HDR + ظلال + أنيميشن
+              // Compose BOM يثبّت كل إصدارات Compose على نسخة متوافقة
+              implementation platform('androidx.compose:compose-bom:2024.09.03')
+              implementation 'androidx.compose.ui:ui'
+              implementation 'androidx.compose.foundation:foundation'
+              implementation 'androidx.compose.material3:material3'
+              implementation 'androidx.compose.material:material-icons-extended'
+
+              // SceneView 4.x
               implementation 'io.github.sceneview:sceneview:4.6.1'
           }
           EOF
@@ -158,21 +161,17 @@ jobs:
           import androidx.compose.runtime.setValue
 
           class WorldConfig {
-              // جودة
               var quality by mutableStateOf(Quality.BALANCED)
               var shadowsEnabled by mutableStateOf(true)
               var fogEnabled by mutableStateOf(true)
               var fogDensity by mutableFloatStateOf(0.03f)
 
-              // بيئة
               var timeOfDay by mutableFloatStateOf(14f)
               var autoDayCycle by mutableStateOf(false)
 
-              // ماء
               var waterEnabled by mutableStateOf(true)
               var waterLevel by mutableFloatStateOf(0.05f)
 
-              // عالم
               var treeScale by mutableFloatStateOf(1.5f)
               var treeCount by mutableIntStateOf(6)
               var animalSpeed by mutableFloatStateOf(1.0f)
@@ -181,7 +180,7 @@ jobs:
           enum class Quality { PERFORMANCE, BALANCED, CINEMATIC }
           EOF
 
-          # ===== ملف واحد فيه كل الواجهة + المشهد =====
+          # ===== الملف الرئيسي =====
           cat > app/src/main/java/com/example/world3d/MainActivity.kt << 'EOF'
           package com.example.world3d
 
@@ -189,7 +188,6 @@ jobs:
           import android.os.Bundle
           import androidx.activity.ComponentActivity
           import androidx.activity.compose.setContent
-          import androidx.compose.foundation.background
           import androidx.compose.foundation.layout.Arrangement
           import androidx.compose.foundation.layout.Box
           import androidx.compose.foundation.layout.Column
@@ -261,7 +259,6 @@ jobs:
               Box(Modifier.fillMaxSize()) {
                   WorldScene(config)
 
-                  // زر الإعدادات
                   IconButton(
                       onClick = { panelVisible = !panelVisible },
                       modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
@@ -269,7 +266,6 @@ jobs:
                       Icon(Icons.Default.Settings, "إعدادات", tint = Color.White)
                   }
 
-                  // اللوحة الجانبية
                   if (panelVisible) {
                       Box(Modifier.align(Alignment.TopEnd).padding(top = 56.dp)) {
                           SettingsPanel(config) { panelVisible = false }
@@ -278,9 +274,6 @@ jobs:
               }
           }
 
-          // ============================================================
-          //  المشهد ثلاثي الأبعاد
-          // ============================================================
           @Composable
           fun WorldScene(config: WorldConfig) {
               val engine = rememberEngine()
@@ -289,18 +282,15 @@ jobs:
               val materialLoader = rememberMaterialLoader(engine)
               val environmentLoader = rememberEnvironmentLoader(engine)
 
-              // بيئة HDR (تُحمَّل من assets/environments/sky.hdr)
               val environment = rememberEnvironment(environmentLoader) {
                   environmentLoader.createHDREnvironment("environments/sky.hdr")
                       ?: environmentLoader.createEnvironment()
               }
 
-              // النماذج (null أثناء التحميل)
               val treeModel   = rememberModelInstance(modelLoader, "models/tree.glb")
               val houseModel  = rememberModelInstance(modelLoader, "models/house.glb")
               val animalModel = rememberModelInstance(modelLoader, "models/animal.glb")
 
-              // مؤقّت للأنيميشن / دورة اليوم
               var animTime by remember { mutableFloatStateOf(config.timeOfDay) }
               LaunchedEffect(config.autoDayCycle) {
                   while (config.autoDayCycle) {
@@ -318,7 +308,6 @@ jobs:
                   environment = environment,
                   cameraManipulator = rememberCameraManipulator()
               ) {
-                  // ---------- الأرضية ----------
                   val groundMaterial = remember(engine) {
                       materialLoader.createColorInstance(AndroidColor.rgb(88, 132, 68))
                   }
@@ -328,7 +317,6 @@ jobs:
                       materialInstance = groundMaterial
                   ).apply { position = Position(0f, -0.05f, 0f) }
 
-                  // ---------- سطح الماء ----------
                   if (config.waterEnabled) {
                       val waterMaterial = remember(engine) {
                           materialLoader.createColorInstance(
@@ -344,7 +332,6 @@ jobs:
                       }
                   }
 
-                  // ---------- الأشجار (موزعة دائرياً) ----------
                   treeModel?.let { model ->
                       val n = config.treeCount.coerceAtLeast(1)
                       for (i in 0 until n) {
@@ -363,7 +350,6 @@ jobs:
                       }
                   }
 
-                  // ---------- البيت ----------
                   houseModel?.let { model ->
                       ModelNode(
                           modelInstance = model,
@@ -375,7 +361,6 @@ jobs:
                       }
                   }
 
-                  // ---------- الحيوان (مع أنيميشن GLB) ----------
                   animalModel?.let { model ->
                       ModelNode(
                           modelInstance = model,
@@ -387,25 +372,17 @@ jobs:
                   }
               }
 
-              // مؤشر التحميل
               if (treeModel == null || houseModel == null || animalModel == null) {
                   Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                       Column(horizontalAlignment = Alignment.CenterHorizontally) {
                           CircularProgressIndicator(color = Color.White)
                           Spacer(Modifier.height(8.dp))
-                          Text(
-                              "جاري تحميل النماذج...",
-                              color = Color.White,
-                              fontSize = 14.sp
-                          )
+                          Text("جاري تحميل النماذج...", color = Color.White, fontSize = 14.sp)
                       }
                   }
               }
           }
 
-          // ============================================================
-          //  لوحة الإعدادات الجانبية
-          // ============================================================
           @Composable
           fun SettingsPanel(config: WorldConfig, onClose: () -> Unit) {
               Card(
@@ -513,16 +490,10 @@ jobs:
         run: |
           set -e
           echo "→ تحميل نماذج GLB..."
-
-          # حيوان (Fox) — نموذج حقيقي مع أنيميشن مشي من مكتبة Khronos
           curl -fsSL -o app/src/main/assets/models/animal.glb \
             "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Fox/glTF-Binary/Fox.glb"
-
-          # شجرة — نموذج نباتي (Duck يحوي أنيميشن، كنموذج طبيعي مؤقت)
           curl -fsSL -o app/src/main/assets/models/tree.glb \
             "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Duck/glTF-Binary/Duck.glb"
-
-          # بيت — شاحنة صغيرة كبديل هيكلي (استبدلها لاحقاً ببيت GLB حقيقي)
           curl -fsSL -o app/src/main/assets/models/house.glb \
             "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/CesiumMilkTruck/glTF-Binary/CesiumMilkTruck.glb"
 
@@ -538,7 +509,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: '8.9'
 
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
