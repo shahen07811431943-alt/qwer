@@ -37,7 +37,8 @@ jobs:
               }
               dependencies {
                   classpath 'com.android.tools.build:gradle:8.7.2'
-                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.21'
+                  classpath 'org.jetbrains.kotlin:compose-compiler-gradle-plugin:2.3.21'
               }
           }
           allprojects {
@@ -58,6 +59,7 @@ jobs:
           cat > app/build.gradle << 'EOF'
           apply plugin: 'com.android.application'
           apply plugin: 'org.jetbrains.kotlin.android'
+          apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 
           android {
               namespace 'com.example.world3d'
@@ -81,10 +83,6 @@ jobs:
                   compose true
               }
 
-              composeOptions {
-                  kotlinCompilerExtensionVersion "1.5.14"
-              }
-
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
                   targetCompatibility JavaVersion.VERSION_17
@@ -92,6 +90,7 @@ jobs:
 
               kotlinOptions {
                   jvmTarget = "17"
+                  freeCompilerArgs += ["-Xskip-metadata-version-check"]
               }
 
               packagingOptions {
@@ -112,14 +111,14 @@ jobs:
               implementation 'androidx.core:core-ktx:1.13.1'
               implementation 'androidx.activity:activity-compose:1.9.3'
 
-              // Compose BOM يثبّت كل إصدارات Compose على نسخة متوافقة
-              implementation platform('androidx.compose:compose-bom:2024.09.03')
+              // Compose BOM يثبّت النسخ المتوافقة
+              implementation platform('androidx.compose:compose-bom:2024.12.01')
               implementation 'androidx.compose.ui:ui'
               implementation 'androidx.compose.foundation:foundation'
               implementation 'androidx.compose.material3:material3'
               implementation 'androidx.compose.material:material-icons-extended'
 
-              // SceneView 4.x
+              // SceneView 4.6.1
               implementation 'io.github.sceneview:sceneview:4.6.1'
           }
           EOF
@@ -150,7 +149,6 @@ jobs:
           </manifest>
           EOF
 
-          # ===== إعدادات العالم =====
           cat > app/src/main/java/com/example/world3d/WorldConfig.kt << 'EOF'
           package com.example.world3d
 
@@ -180,7 +178,6 @@ jobs:
           enum class Quality { PERFORMANCE, BALANCED, CINEMATIC }
           EOF
 
-          # ===== الملف الرئيسي =====
           cat > app/src/main/java/com/example/world3d/MainActivity.kt << 'EOF'
           package com.example.world3d
 
@@ -509,7 +506,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.11.1'
 
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
