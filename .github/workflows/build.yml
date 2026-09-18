@@ -1,0 +1,261 @@
+name: Build World3D APK
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Generate project files
+        run: |
+          mkdir -p app/src/main/java/com/example/world3d
+
+          cat > settings.gradle << 'EOF'
+          rootProject.name = "world3d"
+          include ':app'
+          EOF
+
+          cat > build.gradle << 'EOF'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.5.2'
+                  classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+
+          cat > gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx2048m
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+
+          cat > app/build.gradle << 'EOF'
+          apply plugin: 'com.android.application'
+          apply plugin: 'org.jetbrains.kotlin.android'
+
+          android {
+              namespace 'com.example.world3d'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.example.world3d"
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              buildTypes {
+                  debug {
+                      minifyEnabled false
+                  }
+              }
+
+              buildFeatures {
+                  compose true
+              }
+
+              composeOptions {
+                  kotlinCompilerExtensionVersion "1.5.14"
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+
+              packagingOptions {
+                  jniLibs {
+                      pickFirsts += ["**/libc++_shared.so"]
+                  }
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.core:core-ktx:1.13.1'
+              implementation 'androidx.activity:activity-compose:1.9.0'
+              implementation 'androidx.compose.ui:ui:1.6.8'
+              implementation 'androidx.compose.foundation:foundation:1.6.8'
+              implementation 'androidx.compose.material3:material3:1.2.1'
+
+              implementation 'io.github.sceneview:sceneview:2.3.0'
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:allowBackup="true"
+                  android:label="World3D"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/example/world3d/MainActivity.kt << 'EOF'
+          package com.example.world3d
+
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.layout.onGloballyPositioned
+          import androidx.compose.ui.unit.IntSize
+          import io.github.sceneview.Scene
+          import io.github.sceneview.math.Position
+          import io.github.sceneview.math.Size
+          import io.github.sceneview.node.CubeNode
+          import io.github.sceneview.node.CylinderNode
+          import io.github.sceneview.node.SphereNode
+          import io.github.sceneview.rememberCameraManipulator
+          import io.github.sceneview.rememberCameraNode
+          import io.github.sceneview.rememberCollisionSystem
+          import io.github.sceneview.rememberEngine
+          import io.github.sceneview.rememberMainLightNode
+          import io.github.sceneview.rememberNodes
+          import io.github.sceneview.rememberOnGestureListener
+          import io.github.sceneview.rememberRenderer
+          import io.github.sceneview.rememberScene
+          import io.github.sceneview.rememberView
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      World3DScreen()
+                  }
+              }
+          }
+
+          private const val GROUND_HALF_SIZE = 6f
+
+          @androidx.compose.runtime.Composable
+          fun World3DScreen() {
+              val engine = rememberEngine()
+              val view = rememberView(engine)
+              val renderer = rememberRenderer(engine)
+              val scene = rememberScene(engine)
+              val collisionSystem = rememberCollisionSystem(view)
+
+              val cameraNode = rememberCameraNode(engine) {
+                  position = Position(x = 0f, y = 10f, z = 10f)
+                  rotation = io.github.sceneview.math.Rotation(x = -45f, y = 0f, z = 0f)
+              }
+
+              val mainLightNode = rememberMainLightNode(engine) {
+                  intensity = 100_000f
+              }
+
+              var viewSize by remember { mutableStateOf(IntSize.Zero) }
+              val treeNodes = rememberNodes()
+
+              Box(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .onGloballyPositioned { coordinates ->
+                          viewSize = coordinates.size
+                      }
+              ) {
+                  Scene(
+                      modifier = Modifier.fillMaxSize(),
+                      engine = engine,
+                      view = view,
+                      renderer = renderer,
+                      scene = scene,
+                      collisionSystem = collisionSystem,
+                      cameraNode = cameraNode,
+                      cameraManipulator = rememberCameraManipulator(),
+                      mainLightNode = mainLightNode,
+                      childNodes = rememberNodes {
+                          add(
+                              CubeNode(
+                                  engine = engine,
+                                  size = Size(GROUND_HALF_SIZE * 2, 0.1f, GROUND_HALF_SIZE * 2)
+                              ).apply {
+                                  position = Position(x = 0f, y = -0.05f, z = 0f)
+                              }
+                          )
+                      } + treeNodes,
+                      onGestureListener = rememberOnGestureListener(
+                          onSingleTapConfirmed = { motionEvent, _ ->
+                              if (viewSize.width > 0 && viewSize.height > 0) {
+                                  val normX = (motionEvent.x / viewSize.width) * 2f - 1f
+                                  val normZ = (motionEvent.y / viewSize.height) * 2f - 1f
+                                  val worldX = normX * GROUND_HALF_SIZE
+                                  val worldZ = normZ * GROUND_HALF_SIZE
+
+                                  val trunk = CylinderNode(
+                                      engine = engine,
+                                      radius = 0.15f,
+                                      height = 1.2f
+                                  ).apply {
+                                      position = Position(x = worldX, y = 0.6f, z = worldZ)
+                                  }
+                                  val canopy = SphereNode(
+                                      engine = engine,
+                                      radius = 0.6f
+                                  ).apply {
+                                      position = Position(x = worldX, y = 1.5f, z = worldZ)
+                                  }
+                                  treeNodes.add(trunk)
+                                  treeNodes.add(canopy)
+                              }
+                          }
+                      )
+                  )
+              }
+          }
+          EOF
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world3d-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
