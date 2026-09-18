@@ -131,29 +131,42 @@ jobs:
           cat > app/src/main/java/com/example/world3d/MainActivity.kt << 'EOF'
           package com.example.world3d
 
+          import android.graphics.Color as AndroidColor
           import android.os.Bundle
           import androidx.activity.ComponentActivity
           import androidx.activity.compose.setContent
           import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.Spacer
           import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.size
+          import androidx.compose.material3.Button
+          import androidx.compose.material3.Text
           import androidx.compose.runtime.getValue
           import androidx.compose.runtime.mutableStateOf
           import androidx.compose.runtime.remember
           import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Alignment
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.layout.onGloballyPositioned
           import androidx.compose.ui.unit.IntSize
+          import androidx.compose.ui.unit.dp
           import io.github.sceneview.Scene
           import io.github.sceneview.math.Position
+          import io.github.sceneview.math.Rotation
           import io.github.sceneview.math.Size
           import io.github.sceneview.node.CubeNode
           import io.github.sceneview.node.CylinderNode
+          import io.github.sceneview.node.DynamicSkyNode
           import io.github.sceneview.node.SphereNode
           import io.github.sceneview.rememberCameraManipulator
           import io.github.sceneview.rememberCameraNode
           import io.github.sceneview.rememberCollisionSystem
           import io.github.sceneview.rememberEngine
           import io.github.sceneview.rememberMainLightNode
+          import io.github.sceneview.rememberMaterialLoader
           import io.github.sceneview.rememberNodes
           import io.github.sceneview.rememberOnGestureListener
           import io.github.sceneview.rememberRenderer
@@ -170,6 +183,7 @@ jobs:
           }
 
           private const val GROUND_HALF_SIZE = 6f
+          private const val MOVE_STEP = 0.7f
 
           @androidx.compose.runtime.Composable
           fun World3DScreen() {
@@ -178,73 +192,127 @@ jobs:
               val renderer = rememberRenderer(engine)
               val scene = rememberScene(engine)
               val collisionSystem = rememberCollisionSystem(view)
+              val materialLoader = rememberMaterialLoader(engine)
+
+              // ألوان المواد
+              val groundMaterial = remember { materialLoader.createColorInstance(AndroidColor.rgb(76, 175, 80)) }
+              val trunkMaterial = remember { materialLoader.createColorInstance(AndroidColor.rgb(101, 67, 33)) }
+              val canopyMaterial = remember { materialLoader.createColorInstance(AndroidColor.rgb(34, 139, 34)) }
+
+              // موقع الكاميرا القابل للتحريك بالأسهم (محاكاة مشي/طيران)
+              var camX by remember { mutableStateOf(0f) }
+              var camY by remember { mutableStateOf(6f) }
+              var camZ by remember { mutableStateOf(9f) }
 
               val cameraNode = rememberCameraNode(engine) {
-                  position = Position(x = 0f, y = 10f, z = 10f)
-                  rotation = io.github.sceneview.math.Rotation(x = -45f, y = 0f, z = 0f)
+                  position = Position(x = camX, y = camY, z = camZ)
+                  rotation = Rotation(x = -35f, y = 0f, z = 0f)
               }
+              // تحديث موقع الكاميرا كل ما تتغير القيم بالأسهم
+              cameraNode.position = Position(x = camX, y = camY, z = camZ)
 
               val mainLightNode = rememberMainLightNode(engine) {
-                  intensity = 100_000f
+                  intensity = 110_000f
               }
 
               var viewSize by remember { mutableStateOf(IntSize.Zero) }
               val treeNodes = rememberNodes()
 
-              Box(
-                  modifier = Modifier
-                      .fillMaxSize()
-                      .onGloballyPositioned { coordinates ->
-                          viewSize = coordinates.size
-                      }
-              ) {
-                  Scene(
-                      modifier = Modifier.fillMaxSize(),
-                      engine = engine,
-                      view = view,
-                      renderer = renderer,
-                      scene = scene,
-                      collisionSystem = collisionSystem,
-                      cameraNode = cameraNode,
-                      cameraManipulator = rememberCameraManipulator(),
-                      mainLightNode = mainLightNode,
-                      childNodes = rememberNodes {
-                          add(
-                              CubeNode(
-                                  engine = engine,
-                                  size = Size(GROUND_HALF_SIZE * 2, 0.1f, GROUND_HALF_SIZE * 2)
-                              ).apply {
-                                  position = Position(x = 0f, y = -0.05f, z = 0f)
+              Box(modifier = Modifier.fillMaxSize()) {
+                  Box(
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .onGloballyPositioned { coordinates ->
+                              viewSize = coordinates.size
+                          }
+                  ) {
+                      Scene(
+                          modifier = Modifier.fillMaxSize(),
+                          engine = engine,
+                          view = view,
+                          renderer = renderer,
+                          scene = scene,
+                          collisionSystem = collisionSystem,
+                          materialLoader = materialLoader,
+                          cameraNode = cameraNode,
+                          cameraManipulator = rememberCameraManipulator(),
+                          mainLightNode = mainLightNode,
+                          childNodes = rememberNodes {
+                              // السماء
+                              add(
+                                  DynamicSkyNode(
+                                      engine = engine,
+                                      timeOfDay = 12f
+                                  )
+                              )
+                              // الأرضية الخضراء
+                              add(
+                                  CubeNode(
+                                      engine = engine,
+                                      size = Size(GROUND_HALF_SIZE * 2, 0.1f, GROUND_HALF_SIZE * 2),
+                                      materialInstance = groundMaterial
+                                  ).apply {
+                                      position = Position(x = 0f, y = -0.05f, z = 0f)
+                                  }
+                              )
+                          } + treeNodes,
+                          onGestureListener = rememberOnGestureListener(
+                              onSingleTapConfirmed = { motionEvent, _ ->
+                                  if (viewSize.width > 0 && viewSize.height > 0) {
+                                      val normX = (motionEvent.x / viewSize.width) * 2f - 1f
+                                      val normZ = (motionEvent.y / viewSize.height) * 2f - 1f
+                                      val worldX = normX * GROUND_HALF_SIZE
+                                      val worldZ = normZ * GROUND_HALF_SIZE
+
+                                      val trunk = CylinderNode(
+                                          engine = engine,
+                                          radius = 0.15f,
+                                          height = 1.2f,
+                                          materialInstance = trunkMaterial
+                                      ).apply {
+                                          position = Position(x = worldX, y = 0.6f, z = worldZ)
+                                      }
+                                      val canopy = SphereNode(
+                                          engine = engine,
+                                          radius = 0.6f,
+                                          materialInstance = canopyMaterial
+                                      ).apply {
+                                          position = Position(x = worldX, y = 1.5f, z = worldZ)
+                                      }
+                                      treeNodes.add(trunk)
+                                      treeNodes.add(canopy)
+                                  }
                               }
                           )
-                      } + treeNodes,
-                      onGestureListener = rememberOnGestureListener(
-                          onSingleTapConfirmed = { motionEvent, _ ->
-                              if (viewSize.width > 0 && viewSize.height > 0) {
-                                  val normX = (motionEvent.x / viewSize.width) * 2f - 1f
-                                  val normZ = (motionEvent.y / viewSize.height) * 2f - 1f
-                                  val worldX = normX * GROUND_HALF_SIZE
-                                  val worldZ = normZ * GROUND_HALF_SIZE
-
-                                  val trunk = CylinderNode(
-                                      engine = engine,
-                                      radius = 0.15f,
-                                      height = 1.2f
-                                  ).apply {
-                                      position = Position(x = worldX, y = 0.6f, z = worldZ)
-                                  }
-                                  val canopy = SphereNode(
-                                      engine = engine,
-                                      radius = 0.6f
-                                  ).apply {
-                                      position = Position(x = worldX, y = 1.5f, z = worldZ)
-                                  }
-                                  treeNodes.add(trunk)
-                                  treeNodes.add(canopy)
-                              }
-                          }
                       )
-                  )
+                  }
+
+                  // أسهم التحكم بالكاميرا (تمشي/تطير فوق الأرض)
+                  Column(
+                      modifier = Modifier
+                          .align(Alignment.BottomStart)
+                          .padding(16.dp)
+                  ) {
+                      Row {
+                          Spacer(modifier = Modifier.size(56.dp))
+                          Button(onClick = { camZ -= MOVE_STEP }) { Text("↑") }
+                          Spacer(modifier = Modifier.size(56.dp))
+                      }
+                      Row {
+                          Button(onClick = { camX -= MOVE_STEP }) { Text("←") }
+                          Button(onClick = { camY += MOVE_STEP }) { Text("⤴") }
+                          Button(onClick = { camX += MOVE_STEP }) { Text("→") }
+                      }
+                      Row {
+                          Spacer(modifier = Modifier.size(56.dp))
+                          Button(onClick = { camZ += MOVE_STEP }) { Text("↓") }
+                          Spacer(modifier = Modifier.size(56.dp))
+                      }
+                      Row {
+                          Spacer(modifier = Modifier.size(56.dp))
+                          Button(onClick = { camY -= MOVE_STEP }) { Text("⤵") }
+                      }
+                  }
               }
           }
           EOF
